@@ -4,13 +4,13 @@
 // Replace every "REPLACE_ME" with values from your Firebase project.
 // console.firebase.google.com → Project settings → Your apps → SDK setup
 const FIREBASE_CONFIG = {
-  apiKey:            'REPLACE_ME',
-  authDomain:        'REPLACE_ME',
-  databaseURL:       'REPLACE_ME',   // https://your-project-default-rtdb.firebaseio.com
-  projectId:         'REPLACE_ME',
-  storageBucket:     'REPLACE_ME',
-  messagingSenderId: 'REPLACE_ME',
-  appId:             'REPLACE_ME'
+  apiKey:            'AIzaSyBXhYcajLx6Hd_OWT3jiGrG2ICciDHlPlw',
+  authDomain:        'poker-tracker-9927b.firebaseapp.com',
+  databaseURL:       'https://poker-tracker-9927b-default-rtdb.firebaseio.com',
+  projectId:         'poker-tracker-9927b',
+  storageBucket:     'poker-tracker-9927b.firebasestorage.app',
+  messagingSenderId: '464853595153',
+  appId:             '1:464853595153:web:9fa412821c1d0a35aa2db0'
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
