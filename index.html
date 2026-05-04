@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BadGizbar — Poker Cash Manager</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header>
+    <div class="header-inner">
+      <h1>&#127132; BadGizbar</h1>
+      <div id="pot-display" class="pot-display">
+        <span>Pot: <strong id="pot-ils">₪0</strong></span>
+        <span class="sep">|</span>
+        <span>Chips in play: <strong id="pot-chips">0</strong></span>
+      </div>
+      <div id="session-date" class="session-date"></div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ADD PLAYER -->
+    <section class="card" id="section-add-player">
+      <h2>Add Player</h2>
+      <p class="hint">Adding a player automatically records their first buy-in: ₪50 / 500 chips.</p>
+      <div class="row">
+        <input type="text" id="player-name-input" placeholder="Player name" maxlength="30" autocomplete="off" />
+        <button id="btn-add-player" class="btn-primary">Add Player</button>
+      </div>
+      <p id="add-player-error" class="error-msg hidden"></p>
+    </section>
+
+    <!-- RE-BUY -->
+    <section class="card" id="section-rebuy">
+      <h2>Re-buy</h2>
+      <p class="hint">Re-buys must be a positive multiple of ₪50. No upper limit.</p>
+      <div class="row">
+        <select id="rebuy-player-select">
+          <option value="">— Select player —</option>
+        </select>
+        <input type="number" id="rebuy-amount" placeholder="₪ amount" min="50" step="50" />
+        <button id="btn-rebuy" class="btn-primary">Record Re-buy</button>
+      </div>
+      <p id="rebuy-error" class="error-msg hidden"></p>
+    </section>
+
+    <!-- PLAYERS LIST -->
+    <section class="card" id="section-players">
+      <h2>Players</h2>
+      <div id="players-list">
+        <p class="empty-state">No players yet. Add a player above to start the evening.</p>
+      </div>
+    </section>
+
+    <!-- CHIP CALCULATOR -->
+    <section class="card" id="section-calculator">
+      <h2>End-of-Night Calculator</h2>
+      <p class="hint">Enter each player's remaining chip count. The total should equal the chips in play.</p>
+      <div id="calculator-rows"></div>
+      <div id="calc-running-total" class="calc-running-total">
+        Total entered: <strong id="calc-total">0</strong> chips
+        <span class="sep">|</span>
+        Expected: <strong id="calc-expected">0</strong> chips
+      </div>
+      <button id="btn-verify" class="btn-secondary">Verify</button>
+      <div id="verify-result" class="verify-result hidden"></div>
+    </section>
+
+    <!-- SESSION HISTORY -->
+    <section class="card" id="section-history">
+      <h2>Session History</h2>
+      <div id="history-list">
+        <p class="empty-state">No past sessions yet.</p>
+      </div>
+      <div class="new-session-zone">
+        <button id="btn-new-session" class="btn-danger">Start New Evening</button>
+        <p class="hint">This will archive the current session and reset the board.</p>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
