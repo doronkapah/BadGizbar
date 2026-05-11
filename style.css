@@ -96,6 +96,16 @@ body:not(.is-admin) .admin-only { display: none !important; }
 
 .landing-sub { color: var(--text-muted); font-size: 1rem; margin-top: 0.3rem; }
 
+.landing-logo-img {
+  width: 170px;
+  height: 170px;
+  object-fit: cover;
+  border-radius: 20px;
+  margin-bottom: 1.1rem;
+  border: 3px solid var(--chip-gold);
+  box-shadow: 0 0 32px rgba(245, 158, 11, 0.35), 0 8px 32px rgba(0,0,0,0.5);
+}
+
 .landing-options {
   display: flex;
   align-items: stretch;
@@ -171,6 +181,15 @@ header {
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
+}
+
+.header-logo {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 2px solid var(--chip-gold);
+  flex-shrink: 0;
 }
 
 h1 { font-size: 1.2rem; font-weight: 700; color: var(--chip-gold); white-space: nowrap; }
