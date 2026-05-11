@@ -8,19 +8,17 @@
 </head>
 <body>
 
-  <!-- SETUP OVERLAY (shown when Firebase is not yet configured) -->
+  <!-- SETUP OVERLAY -->
   <div id="setup-overlay" class="overlay hidden">
     <div class="overlay-card">
       <div class="overlay-icon">&#9881;&#65039;</div>
       <h2>Firebase Setup Required</h2>
-      <p>Open <code>app.js</code> and fill in your Firebase project config. Follow these steps:</p>
+      <p>Open <code>app.js</code> and fill in your Firebase config values.</p>
       <ol>
         <li>Go to <strong>console.firebase.google.com</strong></li>
-        <li>Create a project &rarr; click <strong>Add web app</strong></li>
-        <li>In the left sidebar, go to <strong>Build &rarr; Realtime Database</strong></li>
-        <li>Click <strong>Create Database</strong> &rarr; choose a region &rarr; <em>Start in test mode</em></li>
-        <li>Go to <strong>Project settings</strong> (gear icon) &rarr; scroll down to <em>Your apps</em></li>
-        <li>Copy the <code>firebaseConfig</code> object and paste the values into <code>app.js</code></li>
+        <li>Create a project &rarr; Add web app</li>
+        <li><strong>Build &rarr; Realtime Database</strong> &rarr; Create Database &rarr; Test mode</li>
+        <li>Project settings &rarr; Your apps &rarr; copy <code>firebaseConfig</code> into <code>app.js</code></li>
       </ol>
     </div>
   </div>
@@ -32,23 +30,41 @@
       <h1>BadGizbar</h1>
       <p class="landing-sub">Poker Cash Manager</p>
     </div>
+
     <div class="landing-options">
+
+      <!-- Create -->
       <div class="landing-option">
         <h3>New Session</h3>
-        <p>Start a new evening. You'll get a 4-letter code to share with all players.</p>
+        <p>Start a new evening. Set a PIN to protect admin access.</p>
+        <input id="create-pin-input" type="password" placeholder="Admin PIN (min. 4 chars)" autocomplete="new-password" />
         <button id="btn-create-session" class="btn-primary btn-lg">Create Session</button>
+        <p id="create-error" class="error-msg hidden"></p>
       </div>
+
       <div class="landing-divider">or</div>
+
+      <!-- Join -->
       <div class="landing-option">
         <h3>Join Session</h3>
-        <p>Enter the code shared by the host to view the live balance.</p>
-        <div class="join-row">
-          <input id="join-code-input" type="text" placeholder="XK7F" maxlength="4"
-                 autocomplete="off" spellcheck="false" />
-          <button id="btn-join-session" class="btn-primary">Join</button>
+        <p>Enter the 4-letter code shared by the host.</p>
+        <input id="join-code-input" type="text" placeholder="XK7F" maxlength="4"
+               autocomplete="off" spellcheck="false" />
+
+        <button id="btn-join-viewer" class="btn-primary btn-lg">View Only</button>
+
+        <button id="btn-toggle-admin" class="btn-ghost btn-admin-toggle">
+          Join as Admin &#9660;
+        </button>
+
+        <div id="admin-pin-section" class="hidden admin-join-extra">
+          <input id="join-pin-input" type="password" placeholder="Admin PIN" autocomplete="current-password" />
+          <button id="btn-join-admin" class="btn-secondary">Enter as Admin</button>
         </div>
+
         <p id="join-error" class="error-msg hidden"></p>
       </div>
+
     </div>
   </div>
 
@@ -64,7 +80,8 @@
           <span>Chips: <strong id="pot-chips">0</strong></span>
         </div>
         <div class="header-right">
-          <button id="session-id-badge" class="session-id-badge" title="Click to copy session code">
+          <span id="admin-badge" class="admin-badge hidden">ADMIN</span>
+          <button id="session-id-badge" class="session-id-badge" title="Click to copy">
             <span class="session-id-label">Session</span>
             <span id="session-id-display">----</span>
             <span class="copy-icon">&#10064;</span>
@@ -76,39 +93,54 @@
 
     <main>
 
-      <section class="card" id="section-add-player">
-        <h2>Add Player</h2>
-        <p class="hint">Adding a player auto-records their first buy-in: &#8362;50 / 500 chips.</p>
-        <div class="row">
-          <input type="text" id="player-name-input" placeholder="Player name" maxlength="30" autocomplete="off" />
-          <button id="btn-add-player" class="btn-primary">Add Player</button>
-        </div>
-        <p id="add-player-error" class="error-msg hidden"></p>
-      </section>
-
-      <section class="card" id="section-rebuy">
-        <h2>Re-buy</h2>
-        <p class="hint">Any positive multiple of &#8362;50. No upper limit.</p>
-        <div class="row">
-          <select id="rebuy-player-select">
-            <option value="">&#8212; Select player &#8212;</option>
-          </select>
-          <input type="number" id="rebuy-amount" placeholder="&#8362; amount" min="50" step="50" />
-          <button id="btn-rebuy" class="btn-primary">Record Re-buy</button>
-        </div>
-        <p id="rebuy-error" class="error-msg hidden"></p>
-      </section>
-
+      <!-- PLAYERS (add-player bar visible to admin only) -->
       <section class="card" id="section-players">
         <h2>Players</h2>
+
+        <div class="admin-only add-player-bar">
+          <div class="row">
+            <input type="text" id="player-name-input" placeholder="Player name" maxlength="30" autocomplete="off" />
+            <button id="btn-add-player" class="btn-primary">Add Player</button>
+          </div>
+          <p id="add-player-error" class="error-msg hidden"></p>
+          <p class="hint">First buy-in (&#8362;50 / 500 chips) is recorded automatically.</p>
+        </div>
+
         <div id="players-list">
-          <p class="empty-state">No players yet. Add a player above to start the evening.</p>
+          <p class="empty-state">No players yet.</p>
         </div>
       </section>
 
+      <!-- SUMMARY -->
+      <section class="card" id="section-summary">
+        <h2>Tonight&#8217;s Summary</h2>
+        <table class="summary-table">
+          <thead>
+            <tr>
+              <th>Player</th>
+              <th class="td-num">Buy-ins</th>
+              <th class="td-num">Paid</th>
+              <th class="td-num">Chips</th>
+            </tr>
+          </thead>
+          <tbody id="summary-body">
+            <tr><td colspan="4" class="empty-state" style="padding:.75rem">No players yet.</td></tr>
+          </tbody>
+          <tfoot>
+            <tr class="summary-foot">
+              <td><strong>Total</strong></td>
+              <td></td>
+              <td class="td-num td-gold"><strong id="summary-total-ils">&#8362;0</strong></td>
+              <td class="td-num"><strong id="summary-total-chips">0</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </section>
+
+      <!-- CALCULATOR -->
       <section class="card" id="section-calculator">
         <h2>End-of-Night Calculator</h2>
-        <p class="hint">Enter each player's remaining chip count. Total should equal chips in play.</p>
+        <p class="hint">Enter each player&#8217;s remaining chip count. Total should equal chips in play.</p>
         <div id="calculator-rows"></div>
         <div class="calc-running-total">
           Total entered: <strong id="calc-total">0</strong> chips
@@ -119,12 +151,13 @@
         <div id="verify-result" class="verify-result hidden"></div>
       </section>
 
+      <!-- HISTORY -->
       <section class="card" id="section-history">
         <h2>Past Evenings</h2>
         <div id="history-list">
           <p class="empty-state">No archived evenings yet.</p>
         </div>
-        <div class="new-session-zone">
+        <div class="new-session-zone admin-only">
           <button id="btn-new-session" class="btn-danger">Start New Evening</button>
           <p class="hint">Archives tonight and resets the board. Everyone stays on the same code.</p>
         </div>

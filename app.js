@@ -1,8 +1,6 @@
 'use strict';
 
 // ─── FIREBASE CONFIG ──────────────────────────────────────────────────────────
-// Replace every "REPLACE_ME" with values from your Firebase project.
-// console.firebase.google.com → Project settings → Your apps → SDK setup
 const FIREBASE_CONFIG = {
   apiKey:            'AIzaSyBXhYcajLx6Hd_OWT3jiGrG2ICciDHlPlw',
   authDomain:        'poker-tracker-9927b.firebaseapp.com',
@@ -14,13 +12,23 @@ const FIREBASE_CONFIG = {
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CHIPS_PER_ILS = 10;   // 500 chips per ₪50
-const FIRST_BUYIN   = 50;
+const CHIPS_PER_ILS  = 10;
+const FIRST_BUYIN    = 50;
+const QUICK_AMOUNTS  = [50, 100, 150, 200, 300];
 
 let db;
-let currentSessionId  = null;
+let currentSessionId   = null;
 let sessionUnsubscribe = null;
-let liveData          = null;
+let liveData           = null;
+let isAdmin            = false;
+
+// ─── PIN HASHING (Web Crypto — no external lib needed) ───────────────────────
+
+async function hashPin(pin) {
+  const data = new TextEncoder().encode(pin.trim());
+  const buf  = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 
@@ -29,10 +37,8 @@ function init() {
     document.getElementById('setup-overlay').classList.remove('hidden');
     return;
   }
-
   firebase.initializeApp(FIREBASE_CONFIG);
   db = firebase.database();
-
   bindStaticEvents();
   showLanding();
 }
@@ -42,39 +48,73 @@ function init() {
 function showLanding() {
   document.getElementById('view-landing').classList.remove('hidden');
   document.getElementById('view-session').classList.add('hidden');
-  document.getElementById('join-code-input').value = '';
+  document.getElementById('join-code-input').value  = '';
+  document.getElementById('create-pin-input').value = '';
+  document.getElementById('join-pin-input').value   = '';
+  document.getElementById('admin-pin-section').classList.add('hidden');
   clearError('join-error');
+  clearError('create-error');
 }
 
 function showSessionView() {
   document.getElementById('view-landing').classList.add('hidden');
   document.getElementById('view-session').classList.remove('hidden');
+  document.body.classList.toggle('is-admin', isAdmin);
+  document.getElementById('admin-badge').classList.toggle('hidden', !isAdmin);
 }
 
 // ─── SESSION MANAGEMENT ───────────────────────────────────────────────────────
 
 function generateCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // excludes 0/O/I/1
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
 
-async function createSession() {
-  const id = generateCode();
-  await db.ref(`sessions/${id}/currentEvening`).set({
-    date: formatDate(),
-    players: null
+async function createSession(pin) {
+  const trimmed = pin.trim();
+  if (trimmed.length < 4) return 'PIN must be at least 4 characters.';
+
+  const id      = generateCode();
+  const pinHash = await hashPin(trimmed);
+
+  await db.ref(`sessions/${id}`).set({
+    adminPinHash:   pinHash,
+    currentEvening: { date: formatDate(), players: null }
   });
+
+  isAdmin = true;
+  sessionStorage.setItem(`bg_admin_${id}`, '1');
   attachListener(id);
+  return null;
 }
 
-async function joinSession(rawCode) {
-  const code = rawCode.trim().toUpperCase();
-  if (code.length !== 4) return 'Enter a 4-letter session code.';
+async function joinViewer(code) {
+  const id = code.trim().toUpperCase();
+  if (id.length !== 4) return 'Enter a 4-letter session code.';
 
-  const snap = await db.ref(`sessions/${code}`).get();
-  if (!snap.exists()) return `Session "${code}" not found.`;
+  const snap = await db.ref(`sessions/${id}`).get();
+  if (!snap.exists()) return `Session "${id}" not found.`;
 
-  attachListener(code);
+  isAdmin = false;
+  attachListener(id);
+  return null;
+}
+
+async function joinAdmin(code, pin) {
+  const id = code.trim().toUpperCase();
+  if (id.length !== 4) return 'Enter a 4-letter session code.';
+  if (!pin.trim())      return 'Enter the admin PIN.';
+
+  const snap = await db.ref(`sessions/${id}`).get();
+  if (!snap.exists()) return `Session "${id}" not found.`;
+
+  const stored = snap.val().adminPinHash;
+  const input  = await hashPin(pin);
+  if (input !== stored) return 'Incorrect PIN.';
+
+  isAdmin = true;
+  sessionStorage.setItem(`bg_admin_${id}`, '1');
+  attachListener(id);
   return null;
 }
 
@@ -98,12 +138,15 @@ function leaveSession() {
   currentSessionId   = null;
   sessionUnsubscribe = null;
   liveData           = null;
+  isAdmin            = false;
+  document.body.classList.remove('is-admin');
   showLanding();
 }
 
-// ─── ACTIONS ──────────────────────────────────────────────────────────────────
+// ─── ACTIONS (admin-guarded) ──────────────────────────────────────────────────
 
 async function addPlayer(name) {
+  if (!isAdmin) return;
   const trimmed = name.trim();
   if (!trimmed) return 'Please enter a player name.';
 
@@ -119,20 +162,26 @@ async function addPlayer(name) {
   return null;
 }
 
-async function addBuyin(playerId, amountStr) {
-  if (!playerId) return 'Please select a player.';
-  const amount = Number(amountStr);
-  if (!amount || amount <= 0 || amount % FIRST_BUYIN !== 0)
-    return `Amount must be a positive multiple of ₪${FIRST_BUYIN}.`;
-
+async function addBuyin(playerId, amount) {
+  if (!isAdmin) return;
+  if (!amount || amount <= 0 || amount % FIRST_BUYIN !== 0) return;
   await db.ref(`sessions/${currentSessionId}/currentEvening/players/${playerId}/buyins`).push({
     amount,
     chips: amount * CHIPS_PER_ILS
   });
-  return null;
+}
+
+async function deletePlayer(playerId) {
+  if (!isAdmin) return;
+  const player  = getPlayers().find(p => p.id === playerId);
+  if (!player) return;
+  const totalILS = player.buyins.reduce((s, b) => s + b.amount, 0);
+  if (!confirm(`Remove "${player.name}"?\nThis will remove ₪${totalILS} from the pot.`)) return;
+  await db.ref(`sessions/${currentSessionId}/currentEvening/players/${playerId}`).remove();
 }
 
 async function startNewEvening() {
+  if (!isAdmin) return;
   const current = liveData?.currentEvening;
   if (!current) return;
 
@@ -168,7 +217,7 @@ function getPastEvenings() {
   return Object.entries(raw)
     .map(([id, ev]) => ({
       id,
-      date: ev.date,
+      date:    ev.date,
       players: ev.players
         ? Object.entries(ev.players).map(([pid, p]) => ({
             id: pid, name: p.name,
@@ -182,15 +231,14 @@ function getPastEvenings() {
 // ─── RENDER ───────────────────────────────────────────────────────────────────
 
 function renderFromLiveData() {
-  // Preserve typed chip counts so Firebase updates don't wipe them
   const saved = {};
   document.querySelectorAll('.calc-chip-input').forEach(inp => {
     if (inp.value) saved[inp.dataset.playerId] = inp.value;
   });
 
   renderHeader();
-  renderPlayerSelect();
   renderPlayersList();
+  renderSummary();
   renderCalculator(saved);
   renderHistory();
 }
@@ -201,53 +249,107 @@ function renderHeader() {
   document.getElementById('pot-chips').textContent = chips.toLocaleString();
 }
 
-function renderPlayerSelect() {
-  const sel  = document.getElementById('rebuy-player-select');
-  const prev = sel.value;
-  sel.innerHTML = '<option value="">— Select player —</option>';
-  getPlayers().forEach(p => {
-    const opt = document.createElement('option');
-    opt.value       = p.id;
-    opt.textContent = p.name;
-    sel.appendChild(opt);
-  });
-  if (prev) sel.value = prev;
-}
-
 function renderPlayersList() {
   const container = document.getElementById('players-list');
   const players   = getPlayers();
 
   if (!players.length) {
-    container.innerHTML = '<p class="empty-state">No players yet. Add a player above to start the evening.</p>';
+    container.innerHTML = isAdmin
+      ? '<p class="empty-state">No players yet — add one above.</p>'
+      : '<p class="empty-state">No players yet.</p>';
     return;
   }
+
+  const quickBtns = QUICK_AMOUNTS.map(amt =>
+    `<button class="btn-quick-rebuy" data-amount="${amt}">+&#8362;${amt}</button>`
+  ).join('');
 
   container.innerHTML = players.map(p => {
     const totalILS   = p.buyins.reduce((s, b) => s + b.amount, 0);
     const totalChips = totalILS * CHIPS_PER_ILS;
+
     const tags = p.buyins.map((b, i) =>
       `<span class="buyin-tag${i === 0 ? ' first' : ''}">
-        ${i === 0 ? '&#9733; ' : ''}&#8362;${b.amount} / ${b.chips.toLocaleString()} chips
+        ${i === 0 ? '&#9733; ' : ''}&#8362;${b.amount}&hairsp;/&hairsp;${b.chips.toLocaleString()}&thinsp;chips
       </span>`
     ).join('');
 
-    return `<div class="player-card">
+    return `<div class="player-card" data-player-id="${p.id}">
       <div class="player-header">
         <span class="player-name">${esc(p.name)}</span>
         <span class="player-totals">
-          <span>Total: <span class="amount">&#8362;${totalILS}</span></span>
-          <span>Chips: <span class="amount">${totalChips.toLocaleString()}</span></span>
+          <span>Total:&nbsp;<span class="amount">&#8362;${totalILS}</span></span>
+          <span>Chips:&nbsp;<span class="amount">${totalChips.toLocaleString()}</span></span>
         </span>
+        <button class="btn-delete-player admin-only" data-player-id="${p.id}" title="Remove player">&#215;</button>
       </div>
       <div class="buyin-history">${tags}</div>
+      <div class="quick-rebuy-row admin-only">
+        <span class="quick-rebuy-label">Re-buy:</span>
+        ${quickBtns}
+        <button class="btn-quick-rebuy-custom" title="Custom amount">&#8230;</button>
+      </div>
     </div>`;
+  }).join('');
+
+  container.querySelectorAll('.btn-quick-rebuy').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const card = btn.closest('.player-card');
+      const pid  = card.dataset.playerId;
+      btn.disabled = true;
+      await addBuyin(pid, Number(btn.dataset.amount));
+      btn.disabled = false;
+    });
+  });
+
+  container.querySelectorAll('.btn-quick-rebuy-custom').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const card   = btn.closest('.player-card');
+      const pid    = card.dataset.playerId;
+      const name   = getPlayers().find(p => p.id === pid)?.name ?? '';
+      const raw    = prompt(`Custom re-buy for ${name}\nEnter amount in ₪ (multiple of ${FIRST_BUYIN}):`);
+      if (raw === null) return;
+      const amount = Number(raw.trim());
+      if (!amount || amount <= 0 || amount % FIRST_BUYIN !== 0) {
+        alert(`Amount must be a positive multiple of ₪${FIRST_BUYIN}.`);
+        return;
+      }
+      await addBuyin(pid, amount);
+    });
+  });
+
+  container.querySelectorAll('.btn-delete-player').forEach(btn => {
+    btn.addEventListener('click', () => deletePlayer(btn.dataset.playerId));
+  });
+}
+
+function renderSummary() {
+  const players                = getPlayers();
+  const { ils: total, chips }  = computePot();
+  const tbody                  = document.getElementById('summary-body');
+
+  document.getElementById('summary-total-ils').textContent   = `₪${total}`;
+  document.getElementById('summary-total-chips').textContent = chips.toLocaleString();
+
+  if (!players.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state" style="padding:.75rem">No players yet.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = players.map(p => {
+    const pILS = p.buyins.reduce((s, b) => s + b.amount, 0);
+    return `<tr>
+      <td>${esc(p.name)}</td>
+      <td class="td-num">${p.buyins.length}</td>
+      <td class="td-num td-gold">&#8362;${pILS}</td>
+      <td class="td-num">${(pILS * CHIPS_PER_ILS).toLocaleString()}</td>
+    </tr>`;
   }).join('');
 }
 
 function renderCalculator(saved = {}) {
-  const players  = getPlayers();
-  const expected = computePot().chips;
+  const players      = getPlayers();
+  const expected     = computePot().chips;
   const container    = document.getElementById('calculator-rows');
   const verifyResult = document.getElementById('verify-result');
 
@@ -275,11 +377,10 @@ function renderCalculator(saved = {}) {
 
   updateCalcTotal();
 
-  // Clear verify result only if the player set changed
   const prevIds = new Set(Object.keys(saved));
   const currIds = new Set(players.map(p => p.id));
   const changed = [...prevIds].some(id => !currIds.has(id)) || [...currIds].some(id => !prevIds.has(id));
-  if (changed && Object.keys(saved).length > 0) verifyResult.className = 'verify-result hidden';
+  if (changed && prevIds.size > 0) verifyResult.className = 'verify-result hidden';
 }
 
 function renderHistory() {
@@ -308,8 +409,8 @@ function renderHistory() {
       <div class="history-summary" data-idx="${idx}">
         <span class="history-date">${esc(ev.date)}</span>
         <span class="history-meta">${ev.players.length} player(s)</span>
-        <span class="history-pot">&#8362;${ils} / ${chips.toLocaleString()} chips</span>
-        <span class="btn-ghost">&#9660;</span>
+        <span class="history-pot">&#8362;${ils}&thinsp;/&thinsp;${chips.toLocaleString()} chips</span>
+        <span>&#9660;</span>
       </div>
       <div class="history-details" id="hist-detail-${idx}">
         <table>
@@ -360,7 +461,7 @@ function formatDate() {
 
 function esc(str) {
   return String(str)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 function showError(id, msg) {
@@ -378,21 +479,53 @@ function clearError(id) {
 // ─── EVENT BINDING ────────────────────────────────────────────────────────────
 
 function bindStaticEvents() {
-  // Landing
-  document.getElementById('btn-create-session').addEventListener('click', createSession);
+  // Create session
+  document.getElementById('btn-create-session').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-create-session');
+    const pin = document.getElementById('create-pin-input').value;
+    btn.disabled = true;
+    const err = await createSession(pin);
+    btn.disabled = false;
+    if (err) showError('create-error', err);
+  });
 
-  document.getElementById('btn-join-session').addEventListener('click', async () => {
-    const err = await joinSession(document.getElementById('join-code-input').value);
+  document.getElementById('create-pin-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btn-create-session').click();
+  });
+
+  // Toggle admin PIN section
+  document.getElementById('btn-toggle-admin').addEventListener('click', () => {
+    document.getElementById('admin-pin-section').classList.toggle('hidden');
+    document.getElementById('join-pin-input').focus();
+  });
+
+  // Join as viewer
+  document.getElementById('btn-join-viewer').addEventListener('click', async () => {
+    const btn  = document.getElementById('btn-join-viewer');
+    btn.disabled = true;
+    const err  = await joinViewer(document.getElementById('join-code-input').value);
+    btn.disabled = false;
+    if (err) showError('join-error', err);
+  });
+
+  // Join as admin
+  document.getElementById('btn-join-admin').addEventListener('click', async () => {
+    const btn  = document.getElementById('btn-join-admin');
+    btn.disabled = true;
+    const code = document.getElementById('join-code-input').value;
+    const pin  = document.getElementById('join-pin-input').value;
+    const err  = await joinAdmin(code, pin);
+    btn.disabled = false;
     if (err) showError('join-error', err);
   });
 
   document.getElementById('join-code-input').addEventListener('input', e => {
-    e.target.value = e.target.value.toUpperCase();
+    e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     clearError('join-error');
   });
 
-  document.getElementById('join-code-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') document.getElementById('btn-join-session').click();
+  document.getElementById('join-pin-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('btn-join-admin').click();
   });
 
   // Session header
@@ -419,16 +552,6 @@ function bindStaticEvents() {
 
   document.getElementById('player-name-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('btn-add-player').click();
-  });
-
-  // Re-buy
-  document.getElementById('btn-rebuy').addEventListener('click', async () => {
-    const playerId = document.getElementById('rebuy-player-select').value;
-    const amount   = document.getElementById('rebuy-amount').value;
-    const err      = await addBuyin(playerId, amount);
-    if (err) { showError('rebuy-error', err); return; }
-    clearError('rebuy-error');
-    document.getElementById('rebuy-amount').value = '';
   });
 
   // Verify
