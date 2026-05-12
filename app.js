@@ -40,6 +40,7 @@ function init() {
   firebase.initializeApp(FIREBASE_CONFIG);
   db = firebase.database();
   bindStaticEvents();
+  initRoulette();
   showLanding();
 }
 
@@ -567,5 +568,159 @@ function bindStaticEvents() {
     await startNewEvening();
   });
 }
+
+// ─── ROULETTE ─────────────────────────────────────────────────────────────────
+
+const R_GAMES = [
+  { lines: ["Texas", "Hold'em"],  full: "Texas Hold'em",            fill: '#f59e0b', text: '#1a0800' },
+  { lines: ['Omaha', '4 Cards'],  full: 'Omaha 4 Cards',            fill: '#3b82f6', text: '#ffffff' },
+  { lines: ['Omaha 5', 'Single'], full: 'Omaha 5 Cards Single-Run', fill: '#a855f7', text: '#ffffff' },
+  { lines: ['Omaha 5', 'Double'], full: 'Omaha 5 Cards Double-Run', fill: '#10b981', text: '#ffffff' },
+  { lines: ['Crazyyy!'],          full: 'Crazyyy!',                  fill: '#ef4444', text: '#ffffff' },
+];
+
+const R_N       = R_GAMES.length;
+const R_SLICE_R = (2 * Math.PI) / R_N;
+const R_SLICE_D = 360 / R_N;
+
+let rAngle    = 0;
+let rSpinning = false;
+
+function initRoulette() {
+  drawRoulette(rAngle);
+  document.getElementById('btn-spin').addEventListener('click', () => {
+    if (!rSpinning) doSpin();
+  });
+}
+
+function drawRoulette(angleDeg) {
+  const canvas = document.getElementById('roulette-canvas');
+  const ctx    = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const cx = W / 2, cy = H / 2;
+  const R  = Math.min(W, H) / 2 - 6;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Wheel glow
+  ctx.save();
+  ctx.shadowColor = 'rgba(245,158,11,0.25)';
+  ctx.shadowBlur  = 24;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, 2 * Math.PI);
+  ctx.fillStyle = '#1e293b';
+  ctx.fill();
+  ctx.restore();
+
+  const rot = (angleDeg - 90) * (Math.PI / 180);
+
+  for (let i = 0; i < R_N; i++) {
+    const a0 = rot + i * R_SLICE_R;
+    const a1 = a0 + R_SLICE_R;
+    const am = a0 + R_SLICE_R / 2;
+
+    // Slice
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, R, a0, a1);
+    ctx.closePath();
+    ctx.fillStyle = R_GAMES[i].fill;
+    ctx.fill();
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth   = 2.5;
+    ctx.stroke();
+
+    // Labels (radial, tip pointing outward from centre)
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(am);
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle    = R_GAMES[i].text;
+    ctx.font         = "bold 11px 'Segoe UI', system-ui, sans-serif";
+
+    const lines = R_GAMES[i].lines;
+    const lH    = 15;
+    const tR    = R * 0.63;
+    lines.forEach((line, j) => {
+      ctx.fillText(line, tR, (j - (lines.length - 1) / 2) * lH);
+    });
+    ctx.restore();
+  }
+
+  // Gold outer ring
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, 2 * Math.PI);
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth   = 4;
+  ctx.stroke();
+
+  // Centre cap
+  ctx.beginPath();
+  ctx.arc(cx, cy, 19, 0, 2 * Math.PI);
+  ctx.fillStyle = '#0f172a';
+  ctx.fill();
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth   = 3;
+  ctx.stroke();
+
+  // Centre dot
+  ctx.beginPath();
+  ctx.arc(cx, cy, 5, 0, 2 * Math.PI);
+  ctx.fillStyle = '#f59e0b';
+  ctx.fill();
+}
+
+function doSpin() {
+  rSpinning = true;
+  document.getElementById('btn-spin').disabled = true;
+  document.getElementById('roulette-result').className = 'roulette-result hidden';
+
+  const target     = Math.floor(Math.random() * R_N);
+  const targetMod  = ((-(target + 0.5) * R_SLICE_D) % 360 + 360) % 360;
+  const currentMod = ((rAngle % 360) + 360) % 360;
+  let   delta      = targetMod - currentMod;
+  if (delta <= 0) delta += 360;
+
+  // Slight random wobble within the slice (±20%)
+  const wobble = R_SLICE_D * (Math.random() * 0.4 - 0.2);
+  const from   = rAngle;
+  const to     = rAngle + (6 + Math.floor(Math.random() * 5)) * 360 + delta + wobble;
+  const dur    = 3800;
+  const t0     = performance.now();
+
+  function frame(now) {
+    const p = Math.min((now - t0) / dur, 1);
+    const e = 1 - Math.pow(1 - p, 4); // ease-out quart
+    rAngle  = from + (to - from) * e;
+    drawRoulette(rAngle);
+
+    if (p < 1) {
+      requestAnimationFrame(frame);
+    } else {
+      rAngle    = to;
+      rSpinning = false;
+      document.getElementById('btn-spin').disabled = false;
+      drawRoulette(rAngle);
+      // Winner based on final angle (accounts for wobble)
+      const finalMod = (((-rAngle) % 360) + 360) % 360;
+      showRouletteResult(Math.floor(finalMod / R_SLICE_D) % R_N);
+    }
+  }
+
+  requestAnimationFrame(frame);
+}
+
+function showRouletteResult(idx) {
+  const g  = R_GAMES[idx];
+  const el = document.getElementById('roulette-result');
+  el.textContent       = g.full;
+  el.style.background  = g.fill + '22';
+  el.style.borderColor = g.fill;
+  el.style.color       = g.fill;
+  el.className         = 'roulette-result';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', init);
